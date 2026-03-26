@@ -117,7 +117,11 @@ export default function RootLayout({
     <html lang="en" className={`${inter.variable}`}>
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          rel="preconnect"
+          href="https://fonts.gstatic.com"
+          crossOrigin="anonymous"
+        />
         <link rel="dns-prefetch" href="https://images.unsplash.com" />
       </head>
       <body className="antialiased font-sans bg-linear-to-br from-slate-900 via-blue-900 to-slate-900">

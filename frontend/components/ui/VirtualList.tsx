@@ -38,8 +38,17 @@ export function VirtualList<T>({
       style={{ height: containerHeight }}
     >
       <div style={{ height: items.length * itemHeight, position: 'relative' }}>
-        <div style={{ position: 'absolute', top: startIndex * itemHeight, left: 0, right: 0 }}>
-          {visibleItems.map((item, index) => renderItem(item, startIndex + index))}
+        <div
+          style={{
+            position: 'absolute',
+            top: startIndex * itemHeight,
+            left: 0,
+            right: 0,
+          }}
+        >
+          {visibleItems.map((item, index) =>
+            renderItem(item, startIndex + index),
+          )}
         </div>
       </div>
     </div>

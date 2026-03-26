@@ -15,7 +15,12 @@ const nextConfig: NextConfig = {
     ],
   },
   experimental: {
-    optimizePackageImports: ['lucide-react', 'date-fns', 'recharts', 'framer-motion'],
+    optimizePackageImports: [
+      'lucide-react',
+      'date-fns',
+      'recharts',
+      'framer-motion',
+    ],
   },
   webpack: (config, { isServer }) => {
     if (!isServer) {
