@@ -28,9 +28,9 @@ export default function AgentTransactionsPage() {
 
       const response = await apiClient.get<AgentTransaction[]>(`/agents/registry/transactions/${agentAddress}`);
       setTransactions(response.data);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to fetch transactions:', err);
-      setError(err.message || 'Failed to load transactions');
+      setError(err instanceof Error ? err.message : 'Failed to load transactions');
     } finally {
       setLoading(false);
     }
