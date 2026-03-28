@@ -17,6 +17,7 @@ mod multi_token;
 mod rate_limit;
 mod royalties;
 mod storage;
+mod timelock;
 mod types;
 
 #[cfg(test)]
@@ -40,6 +41,9 @@ mod tests_rate_limit;
 #[cfg(test)]
 mod tests_multisig;
 
+#[cfg(test)]
+mod tests_timelock;
+
 pub use agreement::{
     cancel_agreement, create_agreement, create_agreement_with_token, get_agreement,
     get_agreement_count, get_agreement_token, get_payment_history, get_payment_split,
@@ -52,12 +56,12 @@ pub use multi_token::{
     is_token_supported, remove_supported_token, set_exchange_rate,
 };
 pub use storage::DataKey;
-pub use types::{
+    pub use types::{
     ActionType, AdminProposal, AgreementInput, AgreementStatus, AgreementTerms, AgreementWithToken,
     Attribute, CompoundingFrequency, Config, ContractState, DepositInterest, DepositInterestConfig,
     ErrorContext, InterestAccrual, InterestRecipient, MultiSigConfig, PauseState, PaymentSplit,
     RateLimitConfig, RateLimitReason, RentAgreement, RoyaltyConfig, RoyaltyPayment, SupportedToken,
-    TokenExchangeRate, UserCallCount,
+    TimelockAction, TimelockActionType, TokenExchangeRate, UserCallCount, ContractVersion, VersionStatus,
 };
 
 /// Chioma rental agreement contract.
@@ -69,6 +73,96 @@ pub struct Contract;
 #[allow(clippy::too_many_arguments)]
 #[contractimpl]
 impl Contract {
+    // --- Versioning Functions ---
+
+    /// Get the current contract version.
+    pub fn get_version(env: Env) -> ContractVersion {
+        env.storage()
+            .instance()
+            .get(&DataKey::CurrentVersion)
+            .unwrap_or(ContractVersion {
+                major: 0,
+                minor: 1,
+                patch: 0,
+                label: String::from_str(&env, "initial"),
+                status: VersionStatus::Active,
+                hash: Bytes::new(&env),
+                updated_at: env.ledger().timestamp(),
+            })
+    }
+
+    /// Record a new contract version (admin only).
+    pub fn record_version(env: Env, version: ContractVersion) -> Result<(), RentalError> {
+        let state = Self::get_state(env.clone()).ok_or(RentalError::InvalidState)?;
+        state.admin.require_auth();
+
+        env.storage().instance().set(&DataKey::CurrentVersion, &version);
+
+        let mut history: Vec<ContractVersion> = env
+            .storage()
+            .instance()
+            .get(&DataKey::VersionHistory)
+            .unwrap_or(Vec::new(&env));
+        
+        history.push_back(version.clone());
+        env.storage().instance().set(&DataKey::VersionHistory, &history);
+        env.storage().instance().extend_ttl(500000, 500000);
+
+        events::version_updated(&env, version.major, version.minor, version.patch);
+
+        Ok(())
+    }
+
+    /// Update the status of an existing version (admin only).
+    pub fn update_version_status(
+        env: Env,
+        major: u32,
+        minor: u32,
+        patch: u32,
+        status: VersionStatus,
+    ) -> Result<(), RentalError> {
+        let state = Self::get_state(env.clone()).ok_or(RentalError::InvalidState)?;
+        state.admin.require_auth();
+
+        let mut history: Vec<ContractVersion> = env
+            .storage()
+            .instance()
+            .get(&DataKey::VersionHistory)
+            .ok_or(RentalError::InvalidState)?;
+
+        let mut found = false;
+        for i in 0..history.len() {
+            let mut v = history.get(i).unwrap();
+            if v.major == major && v.minor == minor && v.patch == patch {
+                v.status = status.clone();
+                history.set(i, v.clone());
+                
+                // If this is the current version, update it too
+                let current = Self::get_version(env.clone());
+                if current.major == major && current.minor == minor && current.patch == patch {
+                    env.storage().instance().set(&DataKey::CurrentVersion, &v);
+                }
+                
+                found = true;
+                break;
+            }
+        }
+
+        if !found {
+            return Err(RentalError::InvalidState); // Version not found
+        }
+
+        env.storage().instance().set(&DataKey::VersionHistory, &history);
+        Ok(())
+    }
+
+    /// Get the deployment history of the contract.
+    pub fn get_version_history(env: Env) -> Vec<ContractVersion> {
+        env.storage()
+            .instance()
+            .get(&DataKey::VersionHistory)
+            .unwrap_or(Vec::new(&env))
+    }
     /// Initialize the contract with an admin and configuration.
     ///
     /// @notice One-time setup: sets admin and config. Callable only once.
@@ -778,5 +872,56 @@ impl Contract {
     /// Get total proposal count
     pub fn get_proposal_count(env: Env) -> u32 {
         multi_sig::get_proposal_count(&env)
+    }
+
+    // ─── Timelock Functions ───────────────────────────────────────────────────
+
+    /// Queue an admin action that can only be executed after the mandatory delay.
+    ///
+    /// `delay` is in seconds and must meet the minimum for the given `action_type`:
+    /// UpdateAdmin (7 days), UpdateConfig (3 days), UpdateRates (2 days),
+    /// PauseContract (1 day), UnpauseContract (1 hour).
+    pub fn queue_timelock_action(
+        env: Env,
+        caller: Address,
+        action_type: TimelockActionType,
+        target: Address,
+        data: soroban_sdk::Bytes,
+        delay: u64,
+    ) -> Result<String, RentalError> {
+        timelock::queue_action(&env, caller, action_type, target, data, delay)
+    }
+
+    /// Execute a queued timelock action once its ETA has been reached.
+    pub fn execute_timelock_action(
+        env: Env,
+        caller: Address,
+        action_id: String,
+    ) -> Result<(), RentalError> {
+        timelock::execute_action(&env, caller, action_id)
+    }
+
+    /// Cancel a queued timelock action (admin only).
+    pub fn cancel_timelock_action(
+        env: Env,
+        caller: Address,
+        action_id: String,
+    ) -> Result<(), RentalError> {
+        timelock::cancel_action(&env, caller, action_id)
+    }
+
+    /// Retrieve a timelock action by ID.
+    pub fn get_timelock_action(env: Env, action_id: String) -> Result<TimelockAction, RentalError> {
+        timelock::get_action(&env, action_id)
+    }
+
+    /// Get all active (pending) timelock action IDs.
+    pub fn get_active_timelock_actions(env: Env) -> Vec<String> {
+        timelock::get_active_actions(&env)
+    }
+
+    /// Get total count of timelock actions ever queued.
+    pub fn get_timelock_action_count(env: Env) -> u32 {
+        timelock::get_action_count(&env)
     }
 }

@@ -30,9 +30,6 @@ import {
 
 @Injectable()
 export class PropertiesService {
-  findById(_propertyId: any) {
-    throw new Error('Method not implemented.');
-  }
   constructor(
     @InjectRepository(Property)
     private readonly propertyRepository: Repository<Property>,

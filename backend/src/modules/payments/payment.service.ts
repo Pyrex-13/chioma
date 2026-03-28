@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   Logger,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThanOrEqual } from 'typeorm';
@@ -14,7 +15,6 @@ import {
 import { PaymentMethod } from './entities/payment-method.entity';
 import {
   PaymentSchedule,
-  PaymentInterval,
   PaymentScheduleStatus,
 } from './entities/payment-schedule.entity';
 import { CreatePaymentRecordDto } from './dto/record-payment.dto';
@@ -27,14 +27,26 @@ import { PaymentMethodFiltersDto } from './dto/payment-method-filters.dto';
 import { CreatePaymentScheduleDto } from './dto/create-payment-schedule.dto';
 import { PaymentScheduleFiltersDto } from './dto/payment-schedule-filters.dto';
 import { UpdatePaymentScheduleDto } from './dto/update-payment-schedule.dto';
-import {
-  createCipheriv,
-  randomBytes,
-  createHash,
-  createDecipheriv,
-} from 'crypto';
 import { NotificationsService } from '../notifications/notifications.service';
 import { UsersService } from '../users/users.service';
+import {
+  addDays,
+  calculateNextRunAt,
+  decryptMetadata,
+  encryptMetadata,
+  ensureUserId,
+  getIdempotencyKey,
+} from './payment.helpers';
+import { PaymentProcessingService } from '../stellar/services/payment-processing.service';
+import { StellarService } from '../stellar/services/stellar.service';
+import * as StellarSdk from '@stellar/stellar-sdk';
+import {
+  CreateEscrowGatewayDto,
+  PaymentGatewayWebhookDto,
+  ProcessStellarRentGatewayDto,
+} from './dto/payment-gateway.dto';
+import { RefundEscrowDto, ReleaseEscrowDto } from '../stellar/dto/escrow.dto';
+import { TransactionStatus } from '../stellar/entities/stellar-transaction.entity';
 
 @Injectable()
 export class PaymentService {
@@ -50,15 +62,17 @@ export class PaymentService {
     private readonly paymentGateway: PaymentGatewayService,
     private readonly notificationsService: NotificationsService,
     private readonly usersService: UsersService,
+    private readonly paymentProcessingService: PaymentProcessingService,
+    private readonly stellarService: StellarService,
   ) {}
 
   async recordPayment(
     dto: CreatePaymentRecordDto,
     userId: string,
   ): Promise<Payment> {
-    this.ensureUserId(userId);
+    ensureUserId(userId);
 
-    const idempotencyKey = this.getIdempotencyKey(dto);
+    const idempotencyKey = getIdempotencyKey(dto);
 
     if (idempotencyKey) {
       const existingPayment = await this.paymentRepository.findOne({
@@ -82,9 +96,7 @@ export class PaymentService {
     const netAmount = dto.amount - feeAmount;
 
     const user = await this.usersService.findById(userId);
-    const decryptedMetadata = this.decryptMetadata(
-      paymentMethod.encryptedMetadata,
-    );
+    const decryptedMetadata = decryptMetadata(paymentMethod.encryptedMetadata);
 
     // Process payment through gateway
     const chargeResult = await Promise.resolve(
@@ -103,11 +115,12 @@ export class PaymentService {
         userId,
         agreementId: dto.agreementId ?? null,
         amount: dto.amount,
-        feeAmount,
+        transactionFee: feeAmount,
         netAmount,
         currency: 'NGN',
         status: PaymentStatus.FAILED,
-        paymentMethodId: paymentMethod.id,
+        paymentMethod: paymentMethod.paymentType,
+        paymentMethodRelationId: paymentMethod.id,
         referenceNumber: dto.referenceNumber,
         processedAt: new Date(),
         metadata: { error: chargeResult.error } as PaymentMetadata,
@@ -129,11 +142,12 @@ export class PaymentService {
       userId,
       agreementId: dto.agreementId ?? null,
       amount: dto.amount,
-      feeAmount,
+      transactionFee: feeAmount,
       netAmount,
       currency: 'NGN',
       status: PaymentStatus.COMPLETED,
-      paymentMethodId: paymentMethod.id,
+      paymentMethod: paymentMethod.paymentType,
+      paymentMethodRelationId: paymentMethod.id,
       referenceNumber: dto.referenceNumber || chargeResult.chargeId,
       processedAt: new Date(),
       metadata: { chargeId: chargeResult.chargeId },
@@ -159,7 +173,7 @@ export class PaymentService {
     dto: ProcessRefundDto,
     userId: string,
   ): Promise<Payment> {
-    this.ensureUserId(userId);
+    ensureUserId(userId);
     const payment = await this.paymentRepository.findOne({
       where: { id: paymentId, userId },
     });
@@ -172,7 +186,7 @@ export class PaymentService {
       throw new BadRequestException('Only completed payments can be refunded');
     }
 
-    if (dto.amount > payment.amount - payment.refundedAmount) {
+    if (dto.amount > payment.amount - payment.refundAmount) {
       throw new BadRequestException('Refund amount exceeds available amount');
     }
 
@@ -190,10 +204,11 @@ export class PaymentService {
     }
 
     // Update payment
-    payment.refundedAmount += dto.amount;
+    payment.refundAmount += dto.amount;
     payment.refundReason = dto.reason;
+    payment.refundStatus = 'completed'; // Mocking success for now
     payment.status =
-      payment.refundedAmount >= payment.amount
+      payment.refundAmount >= payment.amount
         ? PaymentStatus.REFUNDED
         : PaymentStatus.PARTIAL_REFUND;
     payment.metadata = {
@@ -215,7 +230,7 @@ export class PaymentService {
   }
 
   async generateReceipt(paymentId: string, userId: string): Promise<any> {
-    this.ensureUserId(userId);
+    ensureUserId(userId);
     const payment = await this.paymentRepository.findOne({
       where: { id: paymentId, userId },
       relations: ['user', 'paymentMethod'],
@@ -270,7 +285,7 @@ export class PaymentService {
     filters: PaymentFiltersDto,
     userId: string,
   ): Promise<Payment[]> {
-    this.ensureUserId(userId);
+    ensureUserId(userId);
     const query = this.paymentRepository
       .createQueryBuilder('payment')
       .leftJoinAndSelect('payment.user', 'user')
@@ -312,7 +327,7 @@ export class PaymentService {
   }
 
   async getPaymentById(id: string, userId: string): Promise<Payment> {
-    this.ensureUserId(userId);
+    ensureUserId(userId);
     const payment = await this.paymentRepository.findOne({
       where: { id, userId },
       relations: ['user', 'paymentMethod'],
@@ -329,7 +344,7 @@ export class PaymentService {
     dto: CreatePaymentMethodDto,
     userId: string,
   ): Promise<PaymentMethod> {
-    this.ensureUserId(userId);
+    ensureUserId(userId);
 
     if (dto.isDefault) {
       await this.paymentMethodRepository.update(
@@ -339,7 +354,7 @@ export class PaymentService {
     }
 
     const encryptedMetadata = dto.sensitiveMetadata
-      ? this.encryptMetadata(dto.sensitiveMetadata)
+      ? encryptMetadata(dto.sensitiveMetadata)
       : null;
 
     const paymentMethod = this.paymentMethodRepository.create({
@@ -360,7 +375,7 @@ export class PaymentService {
     dto: UpdatePaymentMethodDto,
     userId: string,
   ): Promise<PaymentMethod> {
-    this.ensureUserId(userId);
+    ensureUserId(userId);
     const paymentMethod = await this.paymentMethodRepository.findOne({
       where: { id, userId },
     });
@@ -390,7 +405,7 @@ export class PaymentService {
     filters: PaymentMethodFiltersDto,
     userId: string,
   ): Promise<PaymentMethod[]> {
-    this.ensureUserId(userId);
+    ensureUserId(userId);
     const query = this.paymentMethodRepository.createQueryBuilder('method');
 
     query.andWhere('method.userId = :userId', { userId });
@@ -405,7 +420,7 @@ export class PaymentService {
   }
 
   async removePaymentMethod(id: number, userId: string): Promise<void> {
-    this.ensureUserId(userId);
+    ensureUserId(userId);
     const paymentMethod = await this.paymentMethodRepository.findOne({
       where: { id, userId },
     });
@@ -421,7 +436,7 @@ export class PaymentService {
     dto: CreatePaymentScheduleDto,
     userId: string,
   ): Promise<PaymentSchedule> {
-    this.ensureUserId(userId);
+    ensureUserId(userId);
 
     const paymentMethod = await this.paymentMethodRepository.findOne({
       where: { id: parseInt(dto.paymentMethodId), userId },
@@ -452,7 +467,7 @@ export class PaymentService {
     dto: UpdatePaymentScheduleDto,
     userId: string,
   ): Promise<PaymentSchedule> {
-    this.ensureUserId(userId);
+    ensureUserId(userId);
     const schedule = await this.paymentScheduleRepository.findOne({
       where: { id, userId },
     });
@@ -478,7 +493,7 @@ export class PaymentService {
     filters: PaymentScheduleFiltersDto,
     userId: string,
   ): Promise<PaymentSchedule[]> {
-    this.ensureUserId(userId);
+    ensureUserId(userId);
     const query = this.paymentScheduleRepository
       .createQueryBuilder('schedule')
       .leftJoinAndSelect('schedule.paymentMethod', 'paymentMethod');
@@ -497,7 +512,7 @@ export class PaymentService {
   }
 
   async runPaymentSchedule(id: string, userId: string): Promise<Payment> {
-    this.ensureUserId(userId);
+    ensureUserId(userId);
     const schedule = await this.paymentScheduleRepository.findOne({
       where: { id, userId },
     });
@@ -532,6 +547,392 @@ export class PaymentService {
     return results;
   }
 
+  async processStellarRentPayment(
+    dto: ProcessStellarRentGatewayDto,
+    userId: string,
+  ): Promise<Payment> {
+    ensureUserId(userId);
+
+    try {
+      const callerKeypair = StellarSdk.Keypair.fromSecret(dto.tenantSecret);
+      const transactionHash =
+        await this.paymentProcessingService.processRentPayment(
+          dto.tenantAddress,
+          dto.agreementId,
+          dto.amount,
+          callerKeypair,
+        );
+
+      const payment = this.paymentRepository.create({
+        userId,
+        agreementId: dto.agreementId,
+        amount: Number(dto.amount),
+        feeAmount: 0,
+        netAmount: Number(dto.amount),
+        currency: 'XLM',
+        status: PaymentStatus.COMPLETED,
+        referenceNumber: transactionHash,
+        processedAt: new Date(),
+        metadata: {
+          gateway: 'stellar',
+          flow: 'rent',
+          transactionHash,
+          tenantAddress: dto.tenantAddress,
+          reconciledAt: new Date().toISOString(),
+        } as PaymentMetadata,
+      });
+
+      const saved = await this.paymentRepository.save(payment);
+      await this.notificationsService.notify(
+        userId,
+        'Stellar rent payment processed',
+        `Your rent payment of ${dto.amount} XLM was submitted successfully.`,
+        'PAYMENT_RECEIVED',
+      );
+      return saved;
+    } catch (error) {
+      const failedPayment = this.paymentRepository.create({
+        userId,
+        agreementId: dto.agreementId,
+        amount: Number(dto.amount),
+        feeAmount: 0,
+        netAmount: Number(dto.amount),
+        currency: 'XLM',
+        status: PaymentStatus.FAILED,
+        processedAt: new Date(),
+        metadata: {
+          gateway: 'stellar',
+          flow: 'rent',
+          tenantAddress: dto.tenantAddress,
+          error: error instanceof Error ? error.message : 'Payment failed',
+        } as PaymentMetadata,
+      });
+      await this.paymentRepository.save(failedPayment);
+      throw error;
+    }
+  }
+
+  async createEscrowDeposit(
+    dto: CreateEscrowGatewayDto,
+    userId: string,
+  ): Promise<Payment> {
+    ensureUserId(userId);
+
+    try {
+      const escrow = await this.stellarService.createEscrow({
+        sourcePublicKey: dto.sourcePublicKey,
+        destinationPublicKey: dto.destinationPublicKey,
+        amount: dto.amount,
+        expirationDate: dto.expirationDate,
+        rentAgreementId: dto.agreementId,
+      });
+
+      const payment = this.paymentRepository.create({
+        userId,
+        agreementId: dto.agreementId ?? null,
+        amount: Number(dto.amount),
+        feeAmount: 0,
+        netAmount: Number(dto.amount),
+        currency: 'XLM',
+        status: PaymentStatus.PENDING,
+        referenceNumber: `escrow:${escrow.id}`,
+        processedAt: new Date(),
+        metadata: {
+          gateway: 'stellar',
+          flow: 'escrow_deposit',
+          escrowId: escrow.id,
+          escrowStatus: escrow.status,
+          transactionHash: escrow.blockchainEscrowId,
+          sourcePublicKey: dto.sourcePublicKey,
+          destinationPublicKey: dto.destinationPublicKey,
+        } as PaymentMetadata,
+      });
+
+      const saved = await this.paymentRepository.save(payment);
+      await this.notificationsService.notify(
+        userId,
+        'Escrow funded',
+        `Your escrow deposit of ${dto.amount} XLM is now tracked under escrow ${escrow.id}.`,
+        'PAYMENT_RECEIVED',
+      );
+      return saved;
+    } catch (error) {
+      const failedPayment = this.paymentRepository.create({
+        userId,
+        agreementId: dto.agreementId ?? null,
+        amount: Number(dto.amount),
+        feeAmount: 0,
+        netAmount: Number(dto.amount),
+        currency: 'XLM',
+        status: PaymentStatus.FAILED,
+        processedAt: new Date(),
+        metadata: {
+          gateway: 'stellar',
+          flow: 'escrow_deposit',
+          sourcePublicKey: dto.sourcePublicKey,
+          destinationPublicKey: dto.destinationPublicKey,
+          error:
+            error instanceof Error ? error.message : 'Escrow creation failed',
+        } as PaymentMetadata,
+      });
+      await this.paymentRepository.save(failedPayment);
+      throw error;
+    }
+  }
+
+  async releaseEscrowDeposit(
+    escrowId: number,
+    dto: ReleaseEscrowDto,
+    userId: string,
+  ): Promise<Payment | null> {
+    ensureUserId(userId);
+    const escrow = await this.stellarService.releaseEscrow({
+      escrowId,
+      memo: dto.memo,
+    });
+    return this.syncEscrowPaymentFromState(escrowId, escrow.status, userId, {
+      releaseTransactionHash: escrow.releaseTransactionHash,
+      reconciledAt: new Date().toISOString(),
+    });
+  }
+
+  async refundEscrowDeposit(
+    escrowId: number,
+    dto: RefundEscrowDto,
+    userId: string,
+  ): Promise<Payment | null> {
+    ensureUserId(userId);
+    const escrow = await this.stellarService.refundEscrow({
+      escrowId,
+      reason: dto.reason,
+    });
+    return this.syncEscrowPaymentFromState(escrowId, escrow.status, userId, {
+      refundTransactionHash: escrow.refundTransactionHash,
+      refundReason: dto.reason,
+      reconciledAt: new Date().toISOString(),
+    });
+  }
+
+  async reconcileStellarPayments(userId: string, limit = 50) {
+    ensureUserId(userId);
+    const candidates = await this.paymentRepository.find({
+      where: { userId },
+      order: { updatedAt: 'DESC' },
+      take: limit,
+    });
+
+    const stellarPayments = candidates.filter((payment) => {
+      const metadata = payment.metadata ?? {};
+      return (
+        payment.currency === 'XLM' ||
+        metadata.gateway === 'stellar' ||
+        payment.referenceNumber?.startsWith('escrow:')
+      );
+    });
+
+    let updated = 0;
+    let failed = 0;
+
+    for (const payment of stellarPayments) {
+      try {
+        const flow = String(payment.metadata?.flow ?? '');
+        if (flow === 'escrow_deposit' && payment.referenceNumber) {
+          const escrowId = this.parseEscrowReference(payment.referenceNumber);
+          if (escrowId) {
+            const escrow = await this.stellarService.getEscrowById(escrowId);
+            const synced = await this.syncEscrowPaymentFromState(
+              escrowId,
+              escrow.status,
+              userId,
+              {
+                releaseTransactionHash: escrow.releaseTransactionHash,
+                refundTransactionHash: escrow.refundTransactionHash,
+                reconciledAt: new Date().toISOString(),
+              },
+            );
+            if (synced) updated += 1;
+          }
+          continue;
+        }
+
+        const transactionHash = String(payment.metadata?.transactionHash ?? '');
+        if (!transactionHash) {
+          continue;
+        }
+
+        const tx =
+          await this.stellarService.getTransactionByHash(transactionHash);
+        const nextStatus =
+          tx.status === TransactionStatus.COMPLETED
+            ? PaymentStatus.COMPLETED
+            : tx.status === TransactionStatus.FAILED
+              ? PaymentStatus.FAILED
+              : PaymentStatus.PENDING;
+        payment.status = nextStatus;
+        payment.processedAt ??= new Date();
+        payment.metadata = {
+          ...(payment.metadata ?? {}),
+          reconciledAt: new Date().toISOString(),
+          stellarTransactionStatus: tx.status,
+          error: tx.errorMessage ?? payment.metadata?.error,
+        };
+        await this.paymentRepository.save(payment);
+        updated += 1;
+      } catch (error) {
+        failed += 1;
+        this.logger.warn(
+          `Payment reconciliation failed for ${payment.id}: ${error instanceof Error ? error.message : 'unknown error'}`,
+        );
+      }
+    }
+
+    return {
+      scanned: stellarPayments.length,
+      updated,
+      failed,
+    };
+  }
+
+  async retryFailedPayments(userId: string, limit = 20) {
+    ensureUserId(userId);
+    const failedPayments = await this.paymentRepository.find({
+      where: { userId, status: PaymentStatus.FAILED },
+      order: { updatedAt: 'DESC' },
+      take: limit,
+    });
+
+    let retried = 0;
+    let skipped = 0;
+
+    for (const payment of failedPayments) {
+      if (!payment.paymentMethodId) {
+        skipped += 1;
+        continue;
+      }
+
+      try {
+        await this.recordPayment(
+          {
+            agreementId: payment.agreementId ?? undefined,
+            amount: Number(payment.amount),
+            paymentMethodId: String(payment.paymentMethodId),
+            notes: payment.notes ?? undefined,
+            referenceNumber: payment.referenceNumber ?? undefined,
+            idempotencyKey: `${payment.id}-retry-${Date.now()}`,
+          },
+          userId,
+        );
+
+        payment.metadata = {
+          ...(payment.metadata ?? {}),
+          retryAttempts: Number(payment.metadata?.retryAttempts ?? 0) + 1,
+        };
+        await this.paymentRepository.save(payment);
+        retried += 1;
+      } catch (error) {
+        skipped += 1;
+        this.logger.warn(
+          `Retry failed for payment ${payment.id}: ${error instanceof Error ? error.message : 'unknown error'}`,
+        );
+      }
+    }
+
+    return {
+      scanned: failedPayments.length,
+      retried,
+      skipped,
+    };
+  }
+
+  async handlePaymentGatewayWebhook(
+    dto: PaymentGatewayWebhookDto,
+    secretHeader?: string,
+  ) {
+    const configuredSecret = process.env.PAYMENT_WEBHOOK_SECRET;
+    if (configuredSecret && secretHeader !== configuredSecret) {
+      throw new UnauthorizedException('Invalid payment webhook secret');
+    }
+
+    const payment = dto.paymentId
+      ? await this.paymentRepository.findOne({ where: { id: dto.paymentId } })
+      : dto.referenceNumber
+        ? await this.paymentRepository.findOne({
+            where: { referenceNumber: dto.referenceNumber },
+          })
+        : null;
+
+    if (!payment) {
+      return {
+        processed: false,
+        reason: 'payment_not_found',
+      };
+    }
+
+    payment.status = this.mapWebhookStatus(dto.status);
+    payment.processedAt ??= new Date();
+    payment.metadata = {
+      ...(payment.metadata ?? {}),
+      webhookEventType: dto.eventType,
+      transactionHash:
+        dto.transactionHash ?? String(payment.metadata?.transactionHash ?? ''),
+      error: dto.error ?? payment.metadata?.error,
+      reconciledAt: new Date().toISOString(),
+    };
+    if (dto.transactionHash) {
+      payment.referenceNumber = dto.transactionHash;
+    }
+
+    const saved = await this.paymentRepository.save(payment);
+    return {
+      processed: true,
+      payment: saved,
+    };
+  }
+
+  async getPaymentAnalytics(userId: string) {
+    ensureUserId(userId);
+    const payments = await this.paymentRepository.find({
+      where: { userId },
+      order: { createdAt: 'DESC' },
+    });
+
+    const summary = {
+      totalPayments: payments.length,
+      totalVolume: 0,
+      totalRefunded: 0,
+      completedPayments: 0,
+      failedPayments: 0,
+      pendingPayments: 0,
+      byCurrency: {} as Record<string, { count: number; volume: number }>,
+      byFlow: {} as Record<string, number>,
+    };
+
+    for (const payment of payments) {
+      const amount = Number(payment.amount ?? 0);
+      const refundedAmount = Number(payment.refundedAmount ?? 0);
+      summary.totalVolume += amount;
+      summary.totalRefunded += refundedAmount;
+
+      if (payment.status === PaymentStatus.COMPLETED)
+        summary.completedPayments += 1;
+      if (payment.status === PaymentStatus.FAILED) summary.failedPayments += 1;
+      if (payment.status === PaymentStatus.PENDING)
+        summary.pendingPayments += 1;
+
+      const currency = payment.currency || 'UNKNOWN';
+      if (!summary.byCurrency[currency]) {
+        summary.byCurrency[currency] = { count: 0, volume: 0 };
+      }
+      summary.byCurrency[currency].count += 1;
+      summary.byCurrency[currency].volume += amount;
+
+      const flow = String(payment.metadata?.flow ?? 'direct');
+      summary.byFlow[flow] = (summary.byFlow[flow] ?? 0) + 1;
+    }
+
+    return summary;
+  }
+
   private async processSchedulePayment(
     schedule: PaymentSchedule,
   ): Promise<Payment> {
@@ -557,7 +958,7 @@ export class PaymentService {
 
       schedule.retries = 0;
       schedule.lastError = null;
-      schedule.nextRunAt = this.calculateNextRunAt(
+      schedule.nextRunAt = calculateNextRunAt(
         schedule.nextRunAt,
         schedule.interval,
       );
@@ -577,7 +978,7 @@ export class PaymentService {
       if (schedule.retries >= schedule.maxRetries) {
         schedule.status = PaymentScheduleStatus.FAILED;
       } else {
-        schedule.nextRunAt = this.addDays(schedule.nextRunAt, 1);
+        schedule.nextRunAt = addDays(schedule.nextRunAt, 1);
       }
 
       await this.paymentScheduleRepository.save(schedule);
@@ -590,85 +991,5 @@ export class PaymentService {
       );
       throw error;
     }
-  }
-
-  private calculateNextRunAt(date: Date, interval: PaymentInterval): Date {
-    const next = new Date(date.getTime());
-    switch (interval) {
-      case PaymentInterval.WEEKLY:
-        return this.addDays(next, 7);
-      case PaymentInterval.MONTHLY:
-        next.setMonth(next.getMonth() + 1);
-        return next;
-      case PaymentInterval.QUARTERLY:
-        next.setMonth(next.getMonth() + 3);
-        return next;
-      case PaymentInterval.YEARLY:
-        next.setFullYear(next.getFullYear() + 1);
-        return next;
-      default:
-        return this.addDays(next, 30);
-    }
-  }
-
-  private addDays(date: Date, days: number): Date {
-    const next = new Date(date.getTime());
-    next.setDate(next.getDate() + days);
-    return next;
-  }
-
-  private getIdempotencyKey(dto: CreatePaymentRecordDto): string | null {
-    const key = (dto as { idempotencyKey?: unknown }).idempotencyKey;
-    return typeof key === 'string' ? key : null;
-  }
-
-  private ensureUserId(userId: string): void {
-    if (!userId) {
-      throw new BadRequestException('User ID is required');
-    }
-  }
-
-  private encryptMetadata(data: Record<string, unknown>): string {
-    const secret = process.env.PAYMENT_METADATA_SECRET;
-    if (!secret) {
-      throw new BadRequestException(
-        'PAYMENT_METADATA_SECRET is required to store sensitive metadata',
-      );
-    }
-
-    const iv = randomBytes(12);
-    const key = createHash('sha256').update(secret).digest();
-    const cipher = createCipheriv('aes-256-gcm', key, iv);
-    const payload = Buffer.from(JSON.stringify(data));
-    const encrypted = Buffer.concat([cipher.update(payload), cipher.final()]);
-    const tag = cipher.getAuthTag();
-    return `${iv.toString('hex')}:${tag.toString('hex')}:${encrypted.toString('hex')}`;
-  }
-
-  private decryptMetadata(
-    payload: string | null,
-  ): Record<string, unknown> | null {
-    if (!payload) {
-      return null;
-    }
-
-    const secret = process.env.PAYMENT_METADATA_SECRET;
-    if (!secret) {
-      return null;
-    }
-
-    const [ivHex, tagHex, dataHex] = payload.split(':');
-    if (!ivHex || !tagHex || !dataHex) {
-      return null;
-    }
-
-    const iv = Buffer.from(ivHex, 'hex');
-    const tag = Buffer.from(tagHex, 'hex');
-    const data = Buffer.from(dataHex, 'hex');
-    const key = createHash('sha256').update(secret).digest();
-    const decipher = createDecipheriv('aes-256-gcm', key, iv);
-    decipher.setAuthTag(tag);
-    const decrypted = Buffer.concat([decipher.update(data), decipher.final()]);
-    return JSON.parse(decrypted.toString('utf8')) as Record<string, unknown>;
   }
 }

@@ -17,7 +17,7 @@ import { PropertyAmenity } from './entities/property-amenity.entity';
 import { RentalUnit } from './entities/rental-unit.entity';
 import { PropertyListingDraft } from './entities/property-listing-draft.entity';
 import { User, UserRole, AuthMethod } from '../users/entities/user.entity';
-import { KycStatus } from '../kyc/kyc.entity';
+import { KycStatus } from '../kyc/kyc-status.enum';
 
 describe('PropertiesService', () => {
   let service: PropertiesService;
@@ -253,23 +253,6 @@ describe('PropertiesService', () => {
 
       expect(mockImageRepository.create).toHaveBeenCalled();
       expect(mockImageRepository.save).toHaveBeenCalled();
-    });
-  });
-
-  describe('findById', () => {
-    it('throws because the method is not implemented (use findOne instead)', () => {
-      expect(() => service.findById('any-id')).toThrow(
-        'Method not implemented.',
-      );
-    });
-
-    it('throws for undefined and object inputs', () => {
-      expect(() => service.findById(undefined)).toThrow(
-        'Method not implemented.',
-      );
-      expect(() => service.findById({ id: 'x' })).toThrow(
-        'Method not implemented.',
-      );
     });
   });
 

@@ -1,8 +1,4 @@
-import { PDFGenerationService } from "./pdf-generation.service";
-import { AgreementTemplate } from "./entities/agreement-template.entity";
-import { TemplateClause } from "./entities/template-clause.entity";
-import { TemplateRenderingService } from "./template-rendering.service";
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AgreementsController } from './agreements.controller';
 import { AgreementNftController } from './agreement-nft.controller';
@@ -15,6 +11,7 @@ import { RentAgreement } from '../rent/entities/rent-contract.entity';
 import { Payment } from '../rent/entities/payment.entity';
 import { StellarEscrow } from '../stellar/entities/stellar-escrow.entity';
 import { RentObligationNft } from './entities/rent-obligation-nft.entity';
+import { NFTTransfer } from './entities/nft-transfer.entity';
 
 import { AuditModule } from '../audit/audit.module';
 import { ReviewsModule } from '../reviews/reviews.module';
@@ -27,9 +24,10 @@ import { StellarModule } from '../stellar/stellar.module';
       Payment,
       StellarEscrow,
       RentObligationNft,
+      NFTTransfer,
     ]),
     AuditModule,
-    forwardRef(() => ReviewsModule),
+    ReviewsModule,
     StellarModule,
   ],
   controllers: [AgreementsController, AgreementNftController],
