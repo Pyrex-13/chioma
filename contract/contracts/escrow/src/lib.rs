@@ -18,6 +18,9 @@ pub mod types;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod tests_rate_limit;
+
 // Re-export public APIs
 pub use access::AccessControl;
 pub use dispute::DisputeHandler;
