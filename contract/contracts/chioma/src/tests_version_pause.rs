@@ -271,9 +271,9 @@ fn test_update_version_status_lifecycle() {
     assert_eq!(history.get(0).unwrap().status, VersionStatus::Deprecated);
     assert_eq!(client.get_version().status, VersionStatus::Deprecated);
 
-    // Update to Archived
-    client.update_version_status(&1, &1, &0, &VersionStatus::Archived); // Major match but minor mismatch should do nothing or error
-                                                                        // In lib.rs it uses major, minor, patch match.
+    // Update to Archived - Mismatching version should return error
+    let res = client.try_update_version_status(&1, &1, &0, &VersionStatus::Archived);
+    assert!(res.is_err());
 
     client.update_version_status(&1, &0, &0, &VersionStatus::Archived);
     assert_eq!(client.get_version().status, VersionStatus::Archived);
