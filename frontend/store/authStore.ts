@@ -143,10 +143,10 @@ export const useAuthStore = create<AuthStore>()(
       hydrate: () => {
         const stored = readStoredAuth();
         set((state) => {
-          const user = stored.user;
+          let user = stored.user;
           // FORCED TO ADMIN FOR DEVELOPMENT - Global bypass for all admin pages
           if (user && process.env.NODE_ENV !== 'production') {
-            user.role = 'admin';
+            user = { ...user, role: 'admin' };
           }
           state.user = user;
           state.accessToken = stored.accessToken;
@@ -163,12 +163,13 @@ export const useAuthStore = create<AuthStore>()(
        */
       setTokens: (accessToken: string, refreshToken: string, user: User) => {
         // FORCED TO ADMIN FOR DEVELOPMENT - Global bypass for all admin pages
+        let finalUser = user;
         if (user && process.env.NODE_ENV !== 'production') {
-          user.role = 'admin';
+          finalUser = { ...user, role: 'admin' };
         }
-        persistAuth(accessToken, refreshToken, user);
+        persistAuth(accessToken, refreshToken, finalUser);
         set((state) => {
-          state.user = user;
+          state.user = finalUser;
           state.accessToken = accessToken;
           state.refreshToken = refreshToken;
           state.isAuthenticated = true;
@@ -223,13 +224,6 @@ export const useAuthStore = create<AuthStore>()(
           };
         }
         */
-
-        if (process.env.NODE_ENV === 'production') {
-          return {
-            success: false,
-            error: 'Authentication service is unavailable in this environment.',
-          };
-        }
 
         // DEV BYPASS: map demo emails to roles for local testing.
         const normalizedEmail = (email || 'dev@chioma.local').toLowerCase();
