@@ -29,16 +29,10 @@ export default function NotFound() {
               Browse Properties
             </Link>
             <Link
-              href="/dashboard"
+              href="/user"
               className="w-full sm:w-auto rounded-xl border-2 border-white/20 text-white px-6 py-3 font-semibold hover:bg-white/10 transition-all backdrop-blur-sm"
             >
-              Tenant Dashboard
-            </Link>
-            <Link
-              href="/landlords"
-              className="w-full sm:w-auto rounded-xl border-2 border-white/20 text-white px-6 py-3 font-semibold hover:bg-white/10 transition-all backdrop-blur-sm"
-            >
-              Landlord Portal
+              User Dashboard
             </Link>
           </div>
         </section>

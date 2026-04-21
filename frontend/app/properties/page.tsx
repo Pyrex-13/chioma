@@ -9,6 +9,7 @@ import { Filter, Bell, List, Map, ChevronLeft } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { LOADING_KEYS, useLoading } from '@/store';
 import { Spinner, LoadingButton } from '@/components/loading';
+import PropertySearchFilters from '@/components/properties/PropertySearchFilters';
 
 const PropertyMapView = dynamic(
   () => import('@/components/properties/PropertyMapView'),
@@ -29,9 +30,9 @@ export default function PropertyListing() {
   const [searchAsIMove, setSearchAsIMove] = useState(true);
   const { isLoading, setLoading } = useLoading(LOADING_KEYS.pageProperties);
   const [loadMoreLoading, setLoadMoreLoading] = useState(false);
-  const [viewMode, setViewMode] = useState<ViewMode>('split');
-  const [mapWidth, setMapWidth] = useState<number>(50); // percentage in split view
-  const [isMapCollapsed, setIsMapCollapsed] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
+  const [mapWidth, setMapWidth] = useState<number>(50);
+  const [isMapCollapsed, setIsMapCollapsed] = useState(true);
 
   useEffect(() => {
     setLoading(true);
@@ -306,6 +307,7 @@ export default function PropertyListing() {
               </div>
 
               {/* Sort and Filters */}
+              <PropertySearchFilters />
               <div className="flex items-center justify-between mb-8 pb-4 border-b border-white/5">
                 <div className="flex items-center gap-4">
                   <span className="text-blue-200/40 text-sm font-semibold uppercase tracking-widest">

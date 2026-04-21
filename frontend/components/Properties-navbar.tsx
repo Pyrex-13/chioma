@@ -20,8 +20,6 @@ const Navbar = () => {
 
   const navLinks = [
     { name: 'Find a Home', href: '/properties' },
-    { name: 'For Landlords', href: '/landlords' },
-    { name: 'For Agents', href: '/agents' },
     { name: 'Resources', href: '/resources' },
   ];
 

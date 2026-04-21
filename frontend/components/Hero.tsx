@@ -51,15 +51,6 @@ const Hero = () => {
                 View Documentation
               </Link>
             </div>
-
-            {/* Trust Indicator */}
-            <div className="flex items-center space-x-1.5 text-blue-100 text-sm font-medium pt-2">
-              <CheckCircle2
-                size={18}
-                className="text-blue-200 bg-blue-700 rounded-lg"
-              />
-              <span>Powered by Stellar Blockchain</span>
-            </div>
           </div>
 
           {/* Right Visuals Column */}
