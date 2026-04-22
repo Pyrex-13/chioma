@@ -81,7 +81,7 @@ export const WizardNavigationButtons: React.FC = () => {
 
   const handleSaveAndExit = async () => {
     await saveStep(currentStep);
-    router.push('/landlords/dashboard');
+    router.push('/user/dashboard');
   };
 
   // Status Indicator

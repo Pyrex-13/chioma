@@ -7,7 +7,7 @@ import { Users, Building2, Briefcase, ArrowRight } from 'lucide-react';
 const audiences = [
   {
     icon: Users,
-    title: 'For Tenants',
+    title: 'Find Your Home',
     description:
       'Find your perfect home with transparent pricing, instant approvals, and secure payments.',
     features: [
@@ -22,7 +22,7 @@ const audiences = [
   },
   {
     icon: Building2,
-    title: 'For Landlords',
+    title: 'List a Property',
     description:
       'Maximize your rental income with automated management and guaranteed payments.',
     features: [
@@ -31,23 +31,23 @@ const audiences = [
       'Real-time analytics',
       'Reduced vacancy periods',
     ],
-    cta: 'List Property',
-    href: '/landlords',
+    cta: 'Add New Listing',
+    href: '/user/properties/wizard',
     gradient: 'from-indigo-500 to-purple-500',
   },
   {
     icon: Briefcase,
-    title: 'For Agents',
+    title: 'Manage Your Bookings',
     description:
-      'Close deals faster with transparent commissions and instant payouts.',
+      'Keep track of your leases, documents, and payments all in one unified dashboard.',
     features: [
-      'Automated commission splits',
+      'Automated dispute resolution',
       'Instant settlement',
       'Transparent tracking',
-      'Reduced paperwork',
+      'Unified user dashboard',
     ],
-    cta: 'Join as Agent',
-    href: '/agents',
+    cta: 'Go to Dashboard',
+    href: '/user',
     gradient: 'from-purple-500 to-pink-500',
   },
 ];

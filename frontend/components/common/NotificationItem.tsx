@@ -16,7 +16,7 @@ import {
   LandlordNotification,
   LandlordNotificationType,
   NOTIFICATION_TYPE_LABELS,
-} from '@/components/landlord/notifications.types';
+} from '@/components/user/notifications.types';
 
 type NotificationItemProps = {
   notification: LandlordNotification;

@@ -1,21 +1,23 @@
 'use client';
 
-import Image from 'next/image';
 import Link from 'next/link';
 import { Heart, MapPin, Bed, Bath, Ruler, ChevronLeft } from 'lucide-react';
+import { useState } from 'react';
 
 interface PropertyCardProps {
   property: {
-    id: number;
+    id: number | string;
     price: string;
     title: string;
     location: string;
+    category?: string;
     beds: number;
     baths: number;
     sqft: number;
     manager: string;
     image: string;
     verified: boolean;
+    amenities?: string[];
   };
   variant?: 'grid' | 'list';
 }
@@ -25,31 +27,34 @@ export default function PropertyCard({
   variant = 'grid',
 }: PropertyCardProps) {
   const isList = variant === 'list';
+  const [imageError, setImageError] = useState(false);
 
   return (
     <Link href={`/properties/${property.id}`} className="block group">
       <div
-        className={`glass-card rounded-3xl overflow-hidden shadow-2xl transition-all duration-500 hover:shadow-blue-500/10 ${
+        className={`glass-card rounded-3xl overflow-hidden shadow-2xl transition-all duration-500 ${
           isList ? 'flex flex-col sm:flex-row h-full' : 'flex flex-col h-full'
         }`}
       >
         {/* Image Container */}
         <div
-          className={`relative overflow-hidden cursor-pointer ${
-            isList ? 'w-full sm:w-80 h-64 sm:h-auto shrink-0' : 'aspect-[4/3]'
+          className={`relative overflow-hidden cursor-pointer bg-slate-800 flex-shrink-0 ${
+            isList ? 'w-full sm:w-80 h-64 sm:h-auto' : 'w-full aspect-[4/3]'
           }`}
         >
-          <Image
-            src={property.image || '/placeholder.svg'}
-            alt={property.title}
-            fill
-            sizes={
-              isList
-                ? '(max-width: 640px) 100vw, 320px'
-                : '(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw'
-            }
-            className="object-cover transition-transform duration-700 group-hover:scale-110"
-          />
+          {!imageError ? (
+            <img
+              src={property.image}
+              alt={property.title}
+              className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+              onError={() => setImageError(true)}
+              loading="lazy"
+            />
+          ) : (
+            <div className="w-full h-full bg-gradient-to-br from-slate-700 to-slate-900 flex items-center justify-center">
+              <div className="text-slate-500 text-sm">Image unavailable</div>
+            </div>
+          )}
 
           {/* Status Badge */}
           <div className="absolute top-4 left-4 z-10">
@@ -69,27 +74,6 @@ export default function PropertyCard({
           <button className="absolute top-4 right-4 z-10 bg-slate-900/40 backdrop-blur-xl rounded-2xl p-3 hover:bg-white hover:text-red-500 text-white transition-all shadow-2xl active:scale-90 border border-white/10 group/heart">
             <Heart className="w-5 h-5 transition-transform group-hover/heart:scale-110" />
           </button>
-
-          {/* Price Overlay (on grid mode) */}
-          {!isList && (
-            <div className="absolute bottom-4 left-4 right-4 z-10">
-              <div className="glass-dark rounded-2xl p-4 border border-white/5 shadow-2xl">
-                <div className="flex justify-between items-end">
-                  <div>
-                    <p className="text-white font-black text-2xl tracking-tighter">
-                      {property.price}
-                      <span className="text-blue-200/50 text-sm font-medium tracking-normal ml-1">
-                        /mo
-                      </span>
-                    </p>
-                    <p className="text-blue-200/60 text-xs font-bold uppercase tracking-widest mt-1">
-                      Smart Lease Ready
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Content Container */}
@@ -109,15 +93,42 @@ export default function PropertyCard({
               </div>
             )}
 
-            <h3 className="font-black text-white mb-2 text-xl sm:text-2xl leading-tight tracking-tight group-hover:text-blue-400 transition-colors line-clamp-1">
+            <h3 className="font-black text-white mb-2 pt-2 text-xl sm:text-2xl leading-tight tracking-tight group-hover:text-blue-400 transition-colors line-clamp-1">
               {property.title}
             </h3>
 
+            {/* Category Tag & Price */}
+            <div className="flex items-center justify-between mb-4">
+              <span className="bg-emerald-500/20 text-emerald-400 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md border border-emerald-400/20">
+                {property.category || 'Apartment'}
+              </span>
+              <p className="text-white font-black text-xl tracking-tighter border-b border-white/10 pb-1">
+                {property.price}
+                <span className="text-blue-200/50 text-xs font-medium tracking-normal ml-1">
+                  /mo
+                </span>
+              </p>
+            </div>
+
             {/* Location */}
-            <div className="flex items-start gap-2 text-blue-200/40 mb-6 text-sm font-medium">
+            <div className="flex items-start gap-2 text-blue-200/40 mb-5 text-sm font-medium">
               <MapPin className="w-4 h-4 shrink-0 mt-0.5 text-blue-500" />
               <p className="line-clamp-1">{property.location}</p>
             </div>
+
+            {/* Amenities Grid Output (If Provided) */}
+            {property.amenities && property.amenities.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-5">
+                {property.amenities.slice(0, 3).map((amenity, i) => (
+                  <span
+                    key={i}
+                    className="text-[10px] bg-white/5 border border-white/10 text-blue-200/60 px-2 py-1 rounded-lg"
+                  >
+                    {amenity}
+                  </span>
+                ))}
+              </div>
+            )}
 
             {/* Features Grid */}
             <div className="grid grid-cols-3 gap-4 mb-8 pb-6 border-b border-white/5 text-blue-100 font-bold text-xs uppercase tracking-widest">
@@ -139,7 +150,11 @@ export default function PropertyCard({
           {/* Manager / Footer */}
           <div className="flex items-center justify-between group/manager cursor-pointer">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 shrink-0 shadow-lg border border-white/10 group-hover/manager:scale-110 transition-transform" />
+              <img
+                src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${property.manager}`}
+                alt={property.manager}
+                className="w-10 h-10 rounded-2xl shrink-0 shadow-lg border border-white/10 group-hover/manager:scale-110 transition-transform"
+              />
               <div>
                 <p className="text-[10px] text-blue-200/30 font-black uppercase tracking-[0.2em]">
                   Managed by

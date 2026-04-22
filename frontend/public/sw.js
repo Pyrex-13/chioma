@@ -8,8 +8,6 @@ const RUNTIME_CACHE = `${VERSION}-runtime`;
 const OFFLINE_URL = '/offline';
 const PRECACHE_URLS = [
   '/',
-  '/login',
-  '/signup',
   OFFLINE_URL,
   '/manifest.webmanifest',
   '/manifest.json',

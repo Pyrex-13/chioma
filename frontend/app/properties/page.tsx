@@ -5,10 +5,12 @@ import Footer from '@/components/Footer';
 import Navbar from '@/components/Navbar';
 import PropertyCardSkeleton from '@/components/PropertyCardSkeleton';
 import PropertyCard from '@/components/properties/PropertyCard';
+import { PropertyListingHeader } from '@/components/properties/PropertyListingHeader';
 import { Filter, Bell, List, Map, ChevronLeft } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { LOADING_KEYS, useLoading } from '@/store';
-import { Spinner, LoadingButton } from '@/components/loading';
+import { Spinner } from '@/components/loading';
+import { MOCK_PROPERTIES } from '@/mocks/entities/properties';
 
 const PropertyMapView = dynamic(
   () => import('@/components/properties/PropertyMapView'),
@@ -28,10 +30,14 @@ type ViewMode = 'split' | 'list' | 'map';
 export default function PropertyListing() {
   const [searchAsIMove, setSearchAsIMove] = useState(true);
   const { isLoading, setLoading } = useLoading(LOADING_KEYS.pageProperties);
-  const [loadMoreLoading, setLoadMoreLoading] = useState(false);
-  const [viewMode, setViewMode] = useState<ViewMode>('split');
-  const [mapWidth, setMapWidth] = useState<number>(50); // percentage in split view
-  const [isMapCollapsed, setIsMapCollapsed] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
+  const [mapWidth, setMapWidth] = useState<number>(50);
+  const [isMapCollapsed, setIsMapCollapsed] = useState(true);
+  const [properties] = useState(MOCK_PROPERTIES);
+  const [displayedCount, setDisplayedCount] = useState(12);
+  const [isHeaderVisible, setIsHeaderVisible] = useState(true);
+  const [lastScrollY, setLastScrollY] = useState(0);
+  const observerTarget = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -42,98 +48,43 @@ export default function PropertyListing() {
     };
   }, [setLoading]);
 
-  const [properties] = useState([
-    {
-      id: 1,
-      price: '$2,500',
-      title: 'Luxury 2-Bed Apartment',
-      location: '101 Park Avenue, Manhattan, New York',
-      beds: 2,
-      baths: 2,
-      sqft: 1200,
-      manager: 'Sarah Okafor',
-      image:
-        'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=500&h=400&fit=crop',
-      verified: true,
-      latitude: 40.7128,
-      longitude: -74.006,
-    },
-    {
-      id: 2,
-      price: '$3,800',
-      title: 'Modern Loft in Kensington',
-      location: 'High Street Kensington, London',
-      beds: 3,
-      baths: 3,
-      sqft: 1850,
-      manager: 'David Ibrahim',
-      image:
-        'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=500&h=400&fit=crop',
-      verified: true,
-      latitude: 51.5014,
-      longitude: -0.1919,
-    },
-    {
-      id: 3,
-      price: '$1,500',
-      title: 'Serviced Studio Flat',
-      location: 'Shibuya City, Tokyo, Japan',
-      beds: 1,
-      baths: 1,
-      sqft: 600,
-      manager: 'Chioma N.',
-      image:
-        'https://images.unsplash.com/photo-1493857671505-72967e2e2760?w=500&h=400&fit=crop',
-      verified: false,
-      latitude: 35.662,
-      longitude: 139.7038,
-    },
-    {
-      id: 4,
-      price: '$15,000',
-      title: 'Exquisite 4-Bed Penthouse',
-      location: 'Palm Jumeirah, Dubai, UAE',
-      beds: 4,
-      baths: 5,
-      sqft: 3200,
-      manager: 'James Obi',
-      image:
-        'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=500&h=400&fit=crop',
-      verified: true,
-      latitude: 25.1124,
-      longitude: 55.139,
-    },
-    {
-      id: 5,
-      price: '$800',
-      title: 'Cozy 1-Bed Apartment',
-      location: 'Neukölln, Berlin, Germany',
-      beds: 1,
-      baths: 1,
-      sqft: 500,
-      manager: 'Emmanuel K.',
-      image:
-        'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=500&h=400&fit=crop',
-      verified: false,
-      latitude: 52.4811,
-      longitude: 13.4357,
-    },
-    {
-      id: 6,
-      price: '$8,500',
-      title: 'Penthouse with Sea View',
-      location: 'Bondi Beach, Sydney, Australia',
-      beds: 3,
-      baths: 3,
-      sqft: 2100,
-      manager: 'Grace A.',
-      image:
-        'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=500&h=400&fit=crop',
-      verified: true,
-      latitude: -33.8908,
-      longitude: 151.2743,
-    },
-  ]);
+  // Infinite scroll observer
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && displayedCount < properties.length) {
+          setDisplayedCount((prev) => Math.min(prev + 12, properties.length));
+        }
+      },
+      { threshold: 0.1 },
+    );
+
+    if (observerTarget.current) {
+      observer.observe(observerTarget.current);
+    }
+
+    return () => observer.disconnect();
+  }, [displayedCount, properties.length]);
+
+  // Scroll detection for header visibility
+  useEffect(() => {
+    const handleScroll = () => {
+      const currentScrollY = window.scrollY;
+
+      if (currentScrollY > lastScrollY) {
+        // Scrolling down - hide immediately
+        setIsHeaderVisible(false);
+      } else {
+        // Scrolling up - show immediately
+        setIsHeaderVisible(true);
+      }
+
+      setLastScrollY(currentScrollY);
+    };
+
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [lastScrollY]);
 
   const handleBoundsChange = (bounds: {
     north: number;
@@ -165,26 +116,81 @@ export default function PropertyListing() {
 
   return (
     <>
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
+      <div className="flex flex-col min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
         <Navbar theme="dark" />
         {/* Header/Search Bar */}
-        <header className="sticky top-0 z-40 glass-dark border-b border-white/10 shadow-lg">
+        <header
+          className={`sticky top-0 z-40 glass-dark border-b border-white/10 shadow-lg transition-all duration-300 ${
+            isHeaderVisible
+              ? 'translate-y-0 opacity-100'
+              : '-translate-y-full opacity-0 pointer-events-none'
+          }`}
+        >
           <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              {/* Filter Buttons */}
-              <div className="flex flex-wrap items-center gap-2">
-                <button className="px-4 py-2 text-sm glass-card rounded-xl text-blue-100/80 hover:text-white font-medium">
-                  Price Range
-                </button>
-                <button className="px-4 py-2 text-sm bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all font-semibold shadow-blue-500/20 shadow-lg">
-                  Property Type
-                </button>
-                <button className="px-4 py-2 text-sm glass-card rounded-xl text-blue-100/80 hover:text-white font-medium">
-                  Beds & Baths
-                </button>
-                <button className="px-4 py-2 text-sm glass-card rounded-xl text-blue-100/80 hover:text-white font-medium hidden lg:inline-block">
-                  Amenities
-                </button>
+              {/* Filter Buttons & Advanced Filters Merge */}
+              <div className="flex flex-wrap items-center gap-2 relative">
+                <input
+                  type="text"
+                  placeholder="Search by location..."
+                  className="px-4 py-2 text-sm bg-slate-900/50 border border-white/10 rounded-xl text-white placeholder:text-blue-200/30 focus:outline-none focus:ring-1 focus:ring-blue-500/50"
+                />
+
+                {/* Dropdown Filters Mimicking original styling */}
+                <div className="relative group">
+                  <button className="px-4 py-2 text-sm glass-card rounded-xl text-blue-100/80 hover:text-white font-medium">
+                    Property Type
+                  </button>
+                  <div className="absolute top-full left-0 mt-2 min-w-[200px] bg-slate-900 border border-white/10 rounded-xl p-2 hidden group-hover:block z-50 shadow-2xl">
+                    {[
+                      'Hotel',
+                      'Studio apartment',
+                      'Student residence',
+                      'Airbnb',
+                      'Apartment',
+                    ].map((category) => (
+                      <div
+                        key={category}
+                        className="px-3 py-2 text-sm text-blue-100/80 hover:text-white hover:bg-white/5 rounded-lg cursor-pointer"
+                      >
+                        {category}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="relative group hidden sm:block">
+                  <button className="px-4 py-2 text-sm glass-card rounded-xl text-blue-100/80 hover:text-white font-medium">
+                    Availability
+                  </button>
+                  <div className="absolute top-full left-0 mt-2 bg-slate-900 border border-white/10 rounded-xl p-3 hidden group-hover:block z-50 shadow-2xl">
+                    <input
+                      type="date"
+                      className="bg-slate-800 text-sm text-white px-3 py-2 rounded-lg border border-white/5 focus:outline-none w-full"
+                    />
+                  </div>
+                </div>
+
+                <div className="relative group hidden md:block">
+                  <button className="px-4 py-2 text-sm glass-card rounded-xl text-blue-100/80 hover:text-white font-medium">
+                    Price Range
+                  </button>
+                  <div className="absolute top-full left-0 mt-2 bg-slate-900 border border-white/10 rounded-xl p-3 hidden group-hover:block z-50 shadow-2xl min-w-[240px]">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        placeholder="Min"
+                        className="w-1/2 bg-slate-800 text-sm text-white px-3 py-2 rounded-lg border border-white/5 focus:outline-none"
+                      />
+                      <span className="text-white/30">-</span>
+                      <input
+                        type="number"
+                        placeholder="Max"
+                        className="w-1/2 bg-slate-800 text-sm text-white px-3 py-2 rounded-lg border border-white/5 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {/* View & Actions */}
@@ -255,7 +261,7 @@ export default function PropertyListing() {
         </header>
 
         {/* Main Content */}
-        <div className="flex h-[calc(100vh-80px)] overflow-hidden">
+        <div className="flex flex-1 overflow-hidden min-h-0">
           {/* Listings Panel */}
           <div
             className="overflow-y-auto transition-all duration-500 ease-in-out bg-slate-900/50"
@@ -264,101 +270,35 @@ export default function PropertyListing() {
               display: viewMode === 'map' && !isMapCollapsed ? 'none' : 'block',
             }}
           >
-            <div className="max-w-[1200px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
-              {/* Heading */}
-              <div className="mb-8">
-                <h1 className="text-3xl sm:text-5xl font-black text-gradient mb-3 tracking-tighter">
-                  {filteredProperties.length} Premium Stays
-                </h1>
-                <p className="text-blue-200/50 text-base sm:text-lg max-w-xl leading-relaxed">
-                  Discover luxury blockchain-verified properties with seamless
-                  smart contract leasing.
-                </p>
-              </div>
+            <div className="mx-auto px-2 sm:px-3 lg:px-4 py-8">
+              <div className="max-w-[1600px] mx-auto">
+                <PropertyListingHeader count={filteredProperties.length} />
 
-              {/* Verified Badge */}
-              <div className="glass-card rounded-2xl p-6 mb-10 flex gap-5 shadow-2xl relative overflow-hidden group">
-                <div className="absolute inset-0 bg-emerald-500/5 group-hover:bg-emerald-500/10 transition-colors" />
-                <div className="shrink-0 relative">
-                  <div className="w-12 h-12 rounded-xl bg-emerald-500/20 flex items-center justify-center border border-emerald-400/30">
-                    <svg
-                      className="w-6 h-6 text-emerald-400"
-                      fill="currentColor"
-                      viewBox="0 0 20 20"
-                    >
-                      <path
-                        fillRule="evenodd"
-                        d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
-                  </div>
-                </div>
-                <div className="relative">
-                  <h3 className="font-bold text-emerald-100 mb-1 text-lg">
-                    Blockchain Verified
-                  </h3>
-                  <p className="text-emerald-200/50 text-sm max-w-md">
-                    Securely vetted listings ready for instant deployment using
-                    on-chain smart contracts.
-                  </p>
-                </div>
-              </div>
-
-              {/* Sort and Filters */}
-              <div className="flex items-center justify-between mb-8 pb-4 border-b border-white/5">
-                <div className="flex items-center gap-4">
-                  <span className="text-blue-200/40 text-sm font-semibold uppercase tracking-widest">
-                    Sorted by
-                  </span>
-                  <select className="bg-transparent text-white font-bold text-sm cursor-pointer focus:outline-none hover:text-blue-400 transition-colors">
-                    <option className="bg-slate-900">Recommended</option>
-                    <option className="bg-slate-900">Price: Low to High</option>
-                    <option className="bg-slate-900">Price: High to Low</option>
-                    <option className="bg-slate-900">Newest First</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Property Cards Grid */}
-              <div
-                className={`grid gap-6 mb-12 ${
-                  isMapCollapsed || mapWidth < 40
-                    ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'
-                    : 'grid-cols-1 md:grid-cols-2'
-                }`}
-              >
-                {isLoading ? (
-                  <>
-                    {Array.from({ length: 6 }).map((_, index) => (
-                      <PropertyCardSkeleton key={index} />
-                    ))}
-                  </>
-                ) : filteredProperties.length > 0 ? (
-                  filteredProperties.map((property) => (
-                    <PropertyCard key={property.id} property={property} />
-                  ))
-                ) : (
-                  <div className="col-span-full text-center py-24 glass-card rounded-3xl border-dashed">
-                    <div className="text-blue-200/30 text-lg font-medium">
-                      No properties match your current filters
+                {/* Property Cards Grid */}
+                <div className="grid gap-6 mb-12 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+                  {isLoading ? (
+                    <>
+                      {Array.from({ length: 6 }).map((_, index) => (
+                        <PropertyCardSkeleton key={index} />
+                      ))}
+                    </>
+                  ) : filteredProperties.length > 0 ? (
+                    filteredProperties
+                      .slice(0, displayedCount)
+                      .map((property) => (
+                        <PropertyCard key={property.id} property={property} />
+                      ))
+                  ) : (
+                    <div className="col-span-full text-center py-24 glass-card rounded-3xl border-dashed">
+                      <div className="text-blue-200/30 text-lg font-medium">
+                        No properties match your current filters
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
 
-              {/* Load More Button */}
-              <div className="flex justify-center">
-                <LoadingButton
-                  loading={loadMoreLoading}
-                  onClick={() => {
-                    setLoadMoreLoading(true);
-                    setTimeout(() => setLoadMoreLoading(false), 1200);
-                  }}
-                  className="rounded-xl bg-blue-600 px-10 py-4 text-sm font-bold text-white shadow-xl shadow-blue-500/20 transition-all hover:bg-blue-700 hover:scale-105 active:scale-95 disabled:opacity-50"
-                >
-                  Load More Stays
-                </LoadingButton>
+                {/* Infinite scroll trigger */}
+                <div ref={observerTarget} className="h-4" />
               </div>
             </div>
           </div>

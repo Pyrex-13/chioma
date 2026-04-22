@@ -20,8 +20,6 @@ const Navbar = () => {
 
   const navLinks = [
     { name: 'Find a Home', href: '/properties' },
-    { name: 'For Landlords', href: '/landlords' },
-    { name: 'For Agents', href: '/agents' },
     { name: 'Resources', href: '/resources' },
   ];
 
@@ -73,11 +71,6 @@ const Navbar = () => {
           })}
         </div>
 
-        {/* Auth Actions */}
-        <div className="hidden md:flex items-center space-x-6">
-          {/* Removed login/signup links */}
-        </div>
-
         {/* Mobile Menu Button - visible on light nav (text-blue-900), min touch target */}
         <button
           className="md:hidden text-blue-900 p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center -mr-1 rounded-lg active:bg-blue-900/10"
@@ -113,9 +106,6 @@ const Navbar = () => {
               );
             })}
 
-            <div className="pt-4 flex flex-col space-y-4 border-t border-gray-100">
-              {/* Removed login/signup links */}
-            </div>
           </div>
         </div>
       )}

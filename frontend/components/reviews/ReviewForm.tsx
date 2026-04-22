@@ -4,7 +4,7 @@ import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { StarRatingInput } from './StarRatingInput';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Fingerprint, Wallet } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const reviewSchema = z.object({
@@ -111,8 +111,9 @@ export function ReviewForm({
               {errors.comment.message}
             </p>
           ) : (
-            <span className="text-[10px] font-bold text-blue-200/40 uppercase tracking-widest">
-              Your feedback will be published publicly.
+            <span className="text-[10px] font-bold text-emerald-300/60 uppercase tracking-widest flex items-center gap-1.5">
+              <Fingerprint className="w-3 h-3" />
+              Your feedback will be minted as an immutable NFT.
             </span>
           )}
           <span className="text-[10px] font-bold text-blue-200/40 uppercase tracking-widest">
@@ -135,12 +136,15 @@ export function ReviewForm({
         <button
           type="submit"
           disabled={isSubmitting || ratingValue === 0}
-          className="flex min-w-[160px] items-center justify-center rounded-xl bg-blue-600 px-6 py-3 text-[10px] font-bold uppercase tracking-widest text-white transition-all hover:bg-blue-500 hover:shadow-[0_0_20px_rgba(37,99,235,0.4)] disabled:cursor-not-allowed disabled:opacity-50 shadow-lg"
+          className="flex min-w-[160px] items-center gap-2 justify-center rounded-xl bg-gradient-to-r from-emerald-600 to-emerald-500 px-6 py-3 text-[10px] font-bold uppercase tracking-widest text-white transition-all hover:from-emerald-500 hover:to-emerald-400 hover:shadow-[0_0_20px_rgba(16,185,129,0.4)] disabled:cursor-not-allowed disabled:opacity-50 shadow-lg"
         >
           {isSubmitting ? (
             <Loader2 className="w-5 h-5 animate-spin" />
           ) : (
-            'Submit Review'
+            <>
+              <Wallet className="w-4 h-4" />
+              Mint NFT Rating
+            </>
           )}
         </button>
       </div>

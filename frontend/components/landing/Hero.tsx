@@ -27,19 +27,6 @@ export default function Hero() {
 
       <div className="container mx-auto px-4 sm:px-6 relative z-10">
         <div className="max-w-5xl mx-auto text-center space-y-8">
-          {/* Badge */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 border border-white/20 backdrop-blur-sm"
-          >
-            <Sparkles className="w-4 h-4 text-blue-300" />
-            <span className="text-sm font-semibold text-white">
-              Powered by Stellar Blockchain
-            </span>
-          </motion.div>
-
           {/* Main Headline */}
           <motion.h1
             initial={{ opacity: 0, y: 20 }}
@@ -61,7 +48,7 @@ export default function Hero() {
             transition={{ duration: 0.5, delay: 0.2 }}
             className="text-xl md:text-2xl text-blue-100/90 max-w-3xl mx-auto leading-relaxed"
           >
-            Connect with landlords and tenants on the Stellar network.
+            Connect natively with users on the Stellar network.
             Experience instant payouts and transparent contract tracking without
             the paperwork.
           </motion.p>
