@@ -568,7 +568,7 @@ pub fn propose_extension(
         .get(&DataKey::Agreement(agreement_id.clone()))
         .ok_or(RentalError::AgreementNotFound)?;
 
-    if caller != agreement.landlord && caller != agreement.tenant {
+    if caller != agreement.admin && caller != agreement.user {
         return Err(RentalError::Unauthorized);
     }
 
@@ -590,8 +590,8 @@ pub fn propose_extension(
         status: ExtensionStatus::Proposed,
         created_at: env.ledger().timestamp(),
         proposed_by: caller.clone(),
-        landlord_accepted: caller == agreement.landlord,
-        tenant_accepted: caller == agreement.tenant,
+        landlord_accepted: caller == agreement.admin,
+        tenant_accepted: caller == agreement.user,
         last_reason: None,
     };
 
@@ -646,9 +646,9 @@ pub fn accept_extension(
         .get(&DataKey::Agreement(extension.original_agreement_id.clone()))
         .ok_or(RentalError::AgreementNotFound)?;
 
-    if caller == agreement.landlord {
+    if caller == agreement.admin {
         extension.landlord_accepted = true;
-    } else if caller == agreement.tenant {
+    } else if caller == agreement.user {
         extension.tenant_accepted = true;
     } else {
         return Err(RentalError::Unauthorized);
@@ -686,7 +686,7 @@ pub fn reject_extension(
         .get(&DataKey::Agreement(extension.original_agreement_id.clone()))
         .ok_or(RentalError::AgreementNotFound)?;
 
-    if caller != agreement.landlord && caller != agreement.tenant {
+    if caller != agreement.admin && caller != agreement.user {
         return Err(RentalError::Unauthorized);
     }
 
@@ -726,7 +726,7 @@ pub fn activate_extension(
         .get(&DataKey::Agreement(extension.original_agreement_id.clone()))
         .ok_or(RentalError::AgreementNotFound)?;
 
-    if caller != agreement.landlord {
+    if caller != agreement.admin {
         return Err(RentalError::Unauthorized);
     }
 
@@ -769,7 +769,7 @@ pub fn cancel_extension(
         .get(&DataKey::Agreement(extension.original_agreement_id.clone()))
         .ok_or(RentalError::AgreementNotFound)?;
 
-    if caller != agreement.landlord && caller != agreement.tenant {
+    if caller != agreement.admin && caller != agreement.user {
         return Err(RentalError::Unauthorized);
     }
 
