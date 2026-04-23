@@ -43,6 +43,12 @@ pub struct Escrow {
     pub disputed_at: Option<u64>,
     /// Reason for dispute, if any
     pub dispute_reason: Option<String>,
+    /// Emergency freeze flag - prevents all fund movements when true
+    pub is_frozen: bool,
+    /// Timestamp when escrow was frozen
+    pub frozen_at: Option<u64>,
+    /// Reason for freezing the escrow
+    pub freeze_reason: Option<String>,
 }
 
 /// Contract-level timeout configuration.
@@ -128,4 +134,6 @@ pub enum DataKey {
     UserCallCount(Address, String),
     /// Block call count for rate limiting: DataKey::BlockCallCount(block_number, function_name)
     BlockCallCount(u64, String),
+    /// System admin address for emergency operations
+    SystemAdmin,
 }

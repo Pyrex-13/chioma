@@ -72,6 +72,9 @@ impl EscrowContract {
             timeout_days: EscrowStorage::get_timeout_config(&env).escrow_timeout_days,
             disputed_at: None,
             dispute_reason: None,
+            is_frozen: false,
+            frozen_at: None,
+            freeze_reason: None,
         };
 
         EscrowStorage::save(&env, &escrow);
@@ -128,6 +131,7 @@ impl EscrowContract {
     ///
     /// CHECKS:
     /// - Escrow must exist and be Funded (or Disputed if arbiter)
+    /// - Escrow must not be frozen
     /// - Caller must be a valid party
     /// - Release target must be beneficiary or depositor
     /// - Caller must not have already approved this same target
@@ -147,6 +151,9 @@ impl EscrowContract {
     ) -> Result<(), EscrowError> {
         // CHECKS: Get and validate escrow
         let escrow = EscrowStorage::get(&env, &escrow_id).ok_or(EscrowError::EscrowNotFound)?;
+
+        // Check if escrow is frozen
+        AccessControl::require_not_frozen(&escrow)?;
 
         // Verify caller is a valid party
         AccessControl::is_party(&escrow, &caller)?;
@@ -378,6 +385,7 @@ impl EscrowContract {
     ///
     /// CHECKS:
     /// - Escrow must exist and be Funded
+    /// - Escrow must not be frozen
     /// - Amount must be positive and not exceed escrow balance
     /// - Recipient must be beneficiary or depositor
     /// - Reason must not be empty
@@ -400,6 +408,9 @@ impl EscrowContract {
     ) -> Result<(), EscrowError> {
         // CHECKS: Get and validate escrow
         let mut escrow = EscrowStorage::get(&env, &escrow_id).ok_or(EscrowError::EscrowNotFound)?;
+
+        // Check if escrow is frozen
+        AccessControl::require_not_frozen(&escrow)?;
 
         // Verify escrow is in Funded state
         if escrow.status != EscrowStatus::Funded {
@@ -473,6 +484,7 @@ impl EscrowContract {
     ///
     /// CHECKS:
     /// - Escrow must exist and be Funded
+    /// - Escrow must not be frozen
     /// - Damage amount must be non-negative and not exceed escrow balance
     /// - Reason must not be empty
     /// - Must have 2-of-3 approval for release to depositor
@@ -493,6 +505,9 @@ impl EscrowContract {
     ) -> Result<(), EscrowError> {
         // CHECKS: Get and validate escrow
         let mut escrow = EscrowStorage::get(&env, &escrow_id).ok_or(EscrowError::EscrowNotFound)?;
+
+        // Check if escrow is frozen
+        AccessControl::require_not_frozen(&escrow)?;
 
         // Verify escrow is in Funded state
         if escrow.status != EscrowStatus::Funded {
@@ -597,5 +612,165 @@ impl EscrowContract {
         // Verify escrow exists
         EscrowStorage::get(&env, &escrow_id).ok_or(EscrowError::EscrowNotFound)?;
         Ok(EscrowStorage::get_release_history(&env, &escrow_id))
+    }
+
+    /// Initialize the system admin address.
+    /// Should be called once during contract deployment.
+    /// Only the initial caller can set the admin.
+    ///
+    /// CHECKS:
+    /// - Admin must not already be set
+    ///
+    /// EFFECTS:
+    /// - Set admin address in storage
+    pub fn initialize_admin(env: Env, admin: Address) -> Result<(), EscrowError> {
+        // Check if admin is already set
+        if EscrowStorage::get_admin(&env).is_some() {
+            return Err(EscrowError::NotAuthorized);
+        }
+
+        // Require authorization from the admin address
+        admin.require_auth();
+
+        // Set the admin
+        EscrowStorage::set_admin(&env, &admin);
+
+        Ok(())
+    }
+
+    /// Update the system admin address.
+    /// Only the current admin can update to a new admin.
+    ///
+    /// CHECKS:
+    /// - Caller must be current admin
+    ///
+    /// EFFECTS:
+    /// - Update admin address in storage
+    pub fn update_admin(env: Env, caller: Address, new_admin: Address) -> Result<(), EscrowError> {
+        // Verify caller is current admin
+        AccessControl::is_system_admin(&env, &caller)?;
+
+        // Require authorization
+        caller.require_auth();
+
+        // Update the admin
+        EscrowStorage::set_admin(&env, &new_admin);
+
+        Ok(())
+    }
+
+    /// Get the current system admin address.
+    pub fn get_admin(env: Env) -> Option<Address> {
+        EscrowStorage::get_admin(&env)
+    }
+
+    /// Freeze an escrow to prevent all fund movements.
+    /// Used in case of verified exploit, major dispute, or security incident.
+    /// Only the system admin or arbiter can freeze an escrow.
+    ///
+    /// CHECKS:
+    /// - Escrow must exist
+    /// - Escrow must not already be frozen
+    /// - Caller must be system admin or arbiter
+    /// - Reason must not be empty
+    ///
+    /// EFFECTS:
+    /// - Set is_frozen flag to true
+    /// - Record freeze timestamp and reason
+    /// - Emit EscrowFrozen event
+    pub fn freeze_escrow(
+        env: Env,
+        escrow_id: BytesN<32>,
+        caller: Address,
+        reason: soroban_sdk::String,
+    ) -> Result<(), EscrowError> {
+        // CHECKS: Get and validate escrow
+        let mut escrow = EscrowStorage::get(&env, &escrow_id).ok_or(EscrowError::EscrowNotFound)?;
+
+        // Check if already frozen
+        if escrow.is_frozen {
+            return Err(EscrowError::AlreadyFrozen);
+        }
+
+        // Verify reason is not empty
+        if reason.is_empty() {
+            return Err(EscrowError::EmptyFreezeReason);
+        }
+
+        // Verify caller is system admin or arbiter
+        let is_admin = AccessControl::is_system_admin(&env, &caller).is_ok();
+        let is_arbiter = AccessControl::is_arbiter(&escrow, &caller).is_ok();
+
+        if !is_admin && !is_arbiter {
+            return Err(EscrowError::NotAuthorized);
+        }
+
+        // Require authorization
+        caller.require_auth();
+
+        // EFFECTS: Freeze the escrow
+        let timestamp = env.ledger().timestamp();
+        escrow.is_frozen = true;
+        escrow.frozen_at = Some(timestamp);
+        escrow.freeze_reason = Some(reason.clone());
+
+        EscrowStorage::save(&env, &escrow);
+
+        // Emit event
+        events::escrow_frozen(&env, escrow_id, caller, reason, timestamp);
+
+        Ok(())
+    }
+
+    /// Unfreeze an escrow to allow fund movements again.
+    /// Only the system admin can unfreeze an escrow.
+    ///
+    /// CHECKS:
+    /// - Escrow must exist
+    /// - Escrow must be frozen
+    /// - Caller must be system admin
+    ///
+    /// EFFECTS:
+    /// - Set is_frozen flag to false
+    /// - Clear freeze timestamp and reason
+    /// - Emit EscrowUnfrozen event
+    pub fn unfreeze_escrow(
+        env: Env,
+        escrow_id: BytesN<32>,
+        caller: Address,
+    ) -> Result<(), EscrowError> {
+        // CHECKS: Get and validate escrow
+        let mut escrow = EscrowStorage::get(&env, &escrow_id).ok_or(EscrowError::EscrowNotFound)?;
+
+        // Check if escrow is frozen
+        if !escrow.is_frozen {
+            return Err(EscrowError::NotFrozen);
+        }
+
+        // Verify caller is system admin
+        AccessControl::is_system_admin(&env, &caller)?;
+
+        // Require authorization
+        caller.require_auth();
+
+        // EFFECTS: Unfreeze the escrow
+        let timestamp = env.ledger().timestamp();
+        escrow.is_frozen = false;
+        escrow.frozen_at = None;
+        escrow.freeze_reason = None;
+
+        EscrowStorage::save(&env, &escrow);
+
+        // Emit event
+        events::escrow_unfrozen(&env, escrow_id, caller, timestamp);
+
+        Ok(())
+    }
+
+    /// Check if an escrow is frozen.
+    /// Read-only view function.
+    pub fn is_escrow_frozen(env: Env, escrow_id: BytesN<32>) -> Result<bool, EscrowError> {
+        let escrow = EscrowStorage::get(&env, &escrow_id).ok_or(EscrowError::EscrowNotFound)?;
+        Ok(escrow.is_frozen)
     }
 }
