@@ -115,8 +115,7 @@ export default function PropertyListing() {
     ? properties.filter(
         (p) =>
           p.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          p.location?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          p.address?.toLowerCase().includes(searchQuery.toLowerCase()),
+          p.location?.toLowerCase().includes(searchQuery.toLowerCase()),
       )
     : properties;
 
